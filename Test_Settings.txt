@@ -1,0 +1,13 @@
+VERSION: SPHView00
+
+SIMULATION PARAMETERS:
+	Number of frames (5)
+	Steps per frame (10)
+	Time step (0.0001)
+	Number of particles (16900)
+	Particle size (0.005)
+	Reference density (1000)
+	Bulk modulus (4.2039e-45)
+	Dynamic viscosity (0.1)
+	Gravitational strength (9.81)
+

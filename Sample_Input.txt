@@ -1,0 +1,13 @@
+default_params? no
+outfile Test 
+nframes 50
+npframe 150
+dt 0.0001
+#nparticles 
+psize 0.05
+rho_ref 1000
+Bulk_mod 1000 
+viscosity 0.1
+gravity 9.81
+simtype Box
+
