@@ -1,0 +1,13 @@
+VERSION: SPHView01
+
+SIMULATION PARAMETERS:
+	Number of frames (400)
+	Steps per frame (30)
+	Time step (0.0008)
+	Number of particles (0)
+	Particle size (16)
+	Reference density (1000)
+	Gas Constant (2000)
+	Dynamic viscosity (250)
+	Gravitational strength (-98.1)
+
