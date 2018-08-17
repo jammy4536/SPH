@@ -1,10 +1,11 @@
 CXX=g++
+LIBS = -I /usr/local/include/eigen3 -I /usr/local/include
 CFLAGS=-g -fbounds-check -std=c++11 -O3 -fstrict-aliasing 
 
-WCSPH : WCSPH_XSPH.cpp
-	$(CXX) $(CFLAGS) -o  $@ $<
+WCSPH : WCSPH.cpp
+	$(CXX) $(LIBS) $(CFLAGS) $@ -o  $<
 
-lin: WCSPH
+linux: WCSPH
 	./WCSPH Sample_Input.txt
 
 win: WCSPH
