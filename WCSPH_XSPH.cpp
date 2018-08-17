@@ -1,3 +1,12 @@
+/*** WCSPH (Weakly Compressible Smoothed Particle Hydrodynamics) Code***/
+/********* Created by Jamie MacLeod, University of Bristol *************/
+/*** Force Calculation: On Simulating Free Surface Flows using SPH. Monaghan, J.J. (1994) ***/
+/***			+ XSPH Correction (Also described in Monaghan) ***/
+/*** Density Reinitialisation as in Colagrossi, A. and Landrini, M. (2003): Moving Least Squares***/
+/*** Smoothing Kernel: Wendland's C2 ***/
+/*** Integrator: Newmark-Beta ****/
+/*** Variable Timestep Criteria: CFL + Monaghan, J.J. (1989) conditions ***/
+
 #include <iostream>
 #include <iomanip>
 #include <cmath>
@@ -124,9 +133,9 @@ Vector2d W2GradK(Vector2d Rij, double dist)
 
 void Forces(State &part,my_kd_tree_t &mat_index) 
 {
-	maxmu=0;
-	double alpha = 0.025;
-	double eps = 0.1;
+	maxmu=0; /* CFL Parameter */
+	double alpha = 0.025; /* Artificial Viscosity Parameter*/
+	double eps = 0.1; /* XSPH Influence Parameter*/
 	for (auto &pi :part) 
 	{
 		
@@ -138,7 +147,7 @@ void Forces(State &part,my_kd_tree_t &mat_index)
 		pi.Rrho=0.0;
 		
 		vector<double> mu;
-		std::vector<std::pair<size_t,double>> matches;
+		std::vector<std::pair<size_t,double>> matches; /* Nearest Neighbour Search*/
 		mat_index.index->radiusSearch(&pi.xi[0], search_radius, matches, params);
 		for (auto &i: matches) 
 		{
@@ -171,16 +180,16 @@ void Forces(State &part,my_kd_tree_t &mat_index)
 			// 	contrib -= D*(pow((r0/r),N1)-pow((r0/r),N2))*Rij/Rij.squaredNorm();
 			// }
 			//if (pj.b==false)
-				pi.V+=eps*(mass/rhoij)*Kern*Vij;
+				pi.V+=eps*(mass/rhoij)*Kern*Vij; /* XSPH Influence*/
 			Rrhocontr += (Vij.dot(Grad));
 			
 			
 		}
-		pi.Rrho = Rrhocontr*mass;
+		pi.Rrho = Rrhocontr*mass; /*drho/dt*/
 		pi.f= contrib*mass;
 		pi.f(1) += -9.81; /*Add gravity*/
 		
-		
+		//CFL f_cv Calc
 		double it = *max_element(mu.begin(),mu.end());
 		if (it > maxmu)
 			maxmu=it;
@@ -232,13 +241,9 @@ void DensityReinit(State &p, my_kd_tree_t &mat_index)
 
 void PredictorCorrector(State &p, State &ph, my_kd_tree_t &mat_index) 
 {
-	
 	/*Predict*/
 	Forces(p, mat_index); /*Find forces at time n*/
 	
-	// for (auto i=0; i< p.size(); ++i) 
-	// 	cout << p[i].f(0) << "\t" << p[i].f(1) << endl;
-
 	/*Set boundary forces to zero to stop movement of the boundary*/
 	for (size_t i=0; i < bound_parts; ++i)
 		p[i].f = zero;
@@ -284,6 +289,7 @@ void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index)
 			pnp1[i].f = zero; /*Zero boundary forces*/
 			pn[i].f = zero;   /*So that they dont move*/
 		}
+		/*Previous State for error calc*/
 		vector<Vector2d> xih;
 		for (auto pi :pnp1)
 			xih.push_back(pi.xi);
@@ -297,16 +303,15 @@ void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index)
 			pnp1[i].p = B*(pow(pnp1[i].rho/rho0,gam)-1);
 		}
 		mat_index.index->buildIndex();
-		errsum = 0.0;
 		
+		errsum = 0.0;
 		for (size_t i=0; i < pnp1.size(); ++i)
 		{
 			Vector2d r = pnp1[i].xi-xih[i];
 			errsum += r.squaredNorm();
 		}
-
-		
 	}
+	
 	vector<Particle>::iterator maxfi = std::max_element(pnp1.begin(),pnp1.end(),
 		[](Particle p1, Particle p2){return p1.f.norm()< p2.f.norm();});
 	maxf = maxfi->f.norm();
