@@ -216,26 +216,28 @@ void DensityReinit(State &p, my_kd_tree_t &mat_index)
 			if(&pi == &pj)
 				continue;
 
+			Vector2d Rij = pi.xi - pj.xi;
 			Matrix3d Abar ;
-			Abar << 1, pi.xi(0)-pj.xi(0), pi.xi(1)-pj.xi(1),
-				pi.xi(0)-pj.xi(0), pow(pi.xi(0)-pj.xi(0),2),(pi.xi(1)-pj.xi(1))*(pi.xi(0)-pj.xi(0)),
-				pi.xi(1)-pj.xi(1),(pi.xi(1)-pj.xi(1))*(pi.xi(0)-pj.xi(0)),pow(pi.xi(1)-pj.xi(1),2);
+			Abar << 1      , Rij(0)        ,  Rij(1)       ,
+						  Rij(0) , pow(Rij(0),2) ,  Rij(1)*Rij(0),
+							Rij(1) , Rij(1)*Rij(0) ,  pow(Rij(1),2);
 
-			A+=(mass/pj.rho)*Abar*W2Kernel((pi.xi-pj.xi).norm());
+			A+=Abar*W2Kernel(Rij.norm());
 		}
 
 		// Reinitialise density
 		Vector3d Beta = A.inverse()*one;
 		pi.rho=0.0;
 		double rho = 0.0;
+		cout << Beta(0) << " " << Beta(1) << " " << Beta(2) << endl;
 		for (auto &i: matches)
 		{
 			Particle pj= p[i.first];
 			if(&pi == &pj)
 				continue;
+
 			Vector2d Rij = pi.xi-pj.xi;
-			double dist = Rij.norm();
-			rho += W2Kernel(dist)*(Beta(0)+Beta(1)*Rij(0)+Beta(2)*Rij(1));
+			rho += W2Kernel(Rij.norm())*(Beta(0)+Beta(1)*Rij(0)+Beta(2)*Rij(1));
 		}
 
 		pi.rho =rho*mass;

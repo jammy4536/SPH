@@ -348,7 +348,7 @@ void write_frame_data(State particles, std::ofstream& fp)
         fp << b->rho << " "  << b->p << std::endl;
   	}
 
-    fp <<  "ZONE t=\"Particle Data\", STRANDID=2, SOLUTIONTIME=" << t << std::endl;
+    fp <<  "ZONE t=\"Particle Data\", STRANDID=1, SOLUTIONTIME=" << t << ", DATAPACKING=POINT" << std::endl;
   	for (auto p=std::next(particles.begin(),bound_parts); p!=particles.end(); ++p)
 	{
 		//Eigen::Vector2d a=  p->f/p->rho;
