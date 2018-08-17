@@ -1,3 +1,9 @@
+/*** WCSPH (Weakly Compressible Smoothed Particle Hydrodynamics) Code***/
+/********* Created by Jamie MacLeod, University of Bristol *************/
+/*** Force Calculation: On Simulating Free Surface Flows using SPH. Monaghan, J.J. (1994) ***/
+/*** Smoothing Kernel: Wendland's C2 ***/
+/*** Integrator: Newmark-Beta ****/
+
 #include <iostream>
 #include <iomanip>
 #include <cmath>
