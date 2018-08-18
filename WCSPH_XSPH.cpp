@@ -22,6 +22,7 @@
 #include <dirent.h>
 #include <chrono>
 #include <Eigen/Dense>
+#include <Eigen/StdVector>
 #include <nanoflann.hpp>
 #include <utils.h>
 #include <KDTreeVectorOfVectorsAdaptor.h>
@@ -78,6 +79,7 @@ const static Vector2d zero(0.0,0.0);
 typedef struct Particle {
 Particle(Vector2d x, Vector2d v, Vector2d f, float rho, float Rrho, bool bound)	:
 	xi(x), v(v), V(0.0,0.0),  f(f), rho(rho), p(0.0), Rrho(Rrho), b(bound){}
+	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 	Vector2d xi, v, V, f;
 	float rho, p, Rrho;
 	bool b;
@@ -348,19 +350,19 @@ void InitSPH(State &particles)
 	
 	for(int i = 0; i <= Ny ; ++i) {
 		Vector2d xi(0.f,i*stepy);
-		particles.push_back(Particle(xi,v,f,rho,Rrho,true));
+		particles.emplace_back(Particle(xi,v,f,rho,Rrho,true));
 	}
 	for(int i = 1; i <Nx ; ++i) {
 		Vector2d xi(i*stepx,Box(1));
-		particles.push_back(Particle(xi,v,f,rho,Rrho,true));
+		particles.emplace_back(Particle(xi,v,f,rho,Rrho,true));
 	}
 	for(int i= Ny; i>0; --i) {
 		Vector2d xi(Box(0),i*stepy);
-		particles.push_back(Particle(xi,v,f,rho,Rrho,true));
+		particles.emplace_back(Particle(xi,v,f,rho,Rrho,true));
 	}
 	for(int i = Nx; i > 0; --i) {
 		Vector2d xi(i*stepx,0.f);
-		particles.push_back(Particle(xi,v,f,rho,Rrho,true));
+		particles.emplace_back(Particle(xi,v,f,rho,Rrho,true));
 	}
 	
 	bound_parts = particles.size();
@@ -372,7 +374,7 @@ void InitSPH(State &particles)
 		for(int j=0; j< xyPART(1); ++j)
 		{				
 				Vector2d xi(Start(0)+i*Pstep,Start(1)+j*Pstep);		
-				particles.push_back(Particle(xi,v,f,rho,Rrho,false));
+				particles.emplace_back(Particle(xi,v,f,rho,Rrho,false));
 		}
 	}
 
@@ -457,8 +459,8 @@ int main(int argc, char *argv[])
 	high_resolution_clock::time_point t1 = high_resolution_clock::now();
 	
 	//initialise the vector<Particle> particles
-	State particles;
-	State particlesh;
+	State *particles = new State;
+	State *particlesh= new State;
 
 	/*Initialise particles*/
 	InitSPH(particles);
