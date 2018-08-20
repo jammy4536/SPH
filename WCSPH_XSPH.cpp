@@ -22,6 +22,7 @@
 #include <dirent.h>
 #include <chrono>
 #include <Eigen/Dense>
+#include <Eigen/StdVector>
 #include <nanoflann.hpp>
 #include <utils.h>
 #include <KDTreeVectorOfVectorsAdaptor.h>
@@ -57,7 +58,7 @@ const static double B = rho0*pow(Cs,2)/gam; /*Factor for Tait's Eq*/
 
 // SPH Parameters
 const static double H = sqrt((3/M_PI)*(mass/rho0)); /*Support Radius*/
-const static double HSQ = H*H;
+const static double HSQ = H*H; 
 const static double r0 = Pstep;		/*Boundary support radius*/
 const static double D = pow(Cs,2);	/*Boundary param 1*/
 const static float N1 = 4;			/*Boundary param 2*/
@@ -78,6 +79,7 @@ const static Vector2d zero(0.0,0.0);
 typedef struct Particle {
 Particle(Vector2d x, Vector2d v, Vector2d f, float rho, float Rrho, bool bound)	:
 	xi(x), v(v), V(0.0,0.0),  f(f), rho(rho), p(0.0), Rrho(Rrho), b(bound){}
+	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 	Vector2d xi, v, V, f;
 	float rho, p, Rrho;
 	bool b;
@@ -93,28 +95,27 @@ typedef KDTreeVectorOfVectorsAdaptor<State, double> my_kd_tree_t;
 const static double search_radius = 4*HSQ+0.001*H;
 nanoflann::SearchParams params;
 
-/*Gaussian Smoothing Kernel*/
+/*Smoothing Kernel*/
 double Kernel(double dist)
 {
 	double q = dist/H;
 	if (q<3)
 		return exp(-q*q)/(M_PI*HSQ);
-	else
+	else 
 		return 0;
 }
 
-/*Gaussian Kernel Gradient*/
-Vector2d GradK(Vector2d Rij, double dist)
+/*Smoothing Kernel Gradient*/
+Vector2d GradK(Vector2d Rij, double dist) 
 {
 	double q = dist/H;
 	if (q<3)
 		return 2*(Rij/HSQ)*exp(-q*q)/(M_PI*HSQ);
-	else
+	else 
 		return Vector2d(0,0);
 }
 
-//Wendland's C2 Kernel
-double W2Kernel(double dist)
+double W2Kernel(double dist) 
 {
 	double q = dist/H;
 	if (q < 2)
@@ -132,25 +133,25 @@ Vector2d W2GradK(Vector2d Rij, double dist)
 		return Vector2d(0.0,0.0);
 }
 
-void Forces(State &part,my_kd_tree_t &mat_index)
+void Forces(State &part,my_kd_tree_t &mat_index) 
 {
 	maxmu=0; /* CFL Parameter */
 	double alpha = 0.025; /* Artificial Viscosity Parameter*/
 	double eps = 0.1; /* XSPH Influence Parameter*/
-	for (auto &pi :part)
+	for (auto &pi :part) 
 	{
-
+		
 		//Reset the particle to zero
 		pi.f = zero;
 		pi.V = pi.v;
 		Vector2d contrib(0.0,0.0);
 		double Rrhocontr = 0.0;
 		pi.Rrho=0.0;
-
+		
 		vector<double> mu;
 		std::vector<std::pair<size_t,double>> matches; /* Nearest Neighbour Search*/
 		mat_index.index->radiusSearch(&pi.xi[0], search_radius, matches, params);
-		for (auto &i: matches)
+		for (auto &i: matches) 
 		{
 			Particle pj = part[i.first];
 			if(&pi == &pj)
@@ -161,7 +162,7 @@ void Forces(State &part,my_kd_tree_t &mat_index)
 			double r = Rij.norm();
 			double Kern = W2Kernel(r);
 			Vector2d Grad = W2GradK(Rij, r);
-
+			
 			// if (pj.b==false) {
 			/*Pressure and artificial viscosity calc - Monaghan 1994 p.400*/
 				double cbar= 0.5*(sqrt((B*gam)/pi.rho)+sqrt((B*gam)/pj.rho));
@@ -173,23 +174,23 @@ void Forces(State &part,my_kd_tree_t &mat_index)
 
 				if (vdotr > 0) pifac = 0;
 				contrib += Grad*(pifac + pi.p/pow(pi.rho,2)+ pj.p/pow(pj.rho,2));
-
+			
 			//}
 
-			// if (pj.b == true && r < r0)
+			// if (pj.b == true && r < r0) 
 			// {
 			// 	contrib -= D*(pow((r0/r),N1)-pow((r0/r),N2))*Rij/Rij.squaredNorm();
 			// }
 			//if (pj.b==false)
 				pi.V+=eps*(mass/rhoij)*Kern*Vij; /* XSPH Influence*/
 			Rrhocontr += (Vij.dot(Grad));
-
-
+			
+			
 		}
 		pi.Rrho = Rrhocontr*mass; /*drho/dt*/
 		pi.f= contrib*mass;
 		pi.f(1) += -9.81; /*Add gravity*/
-
+		
 		//CFL f_cv Calc
 		double it = *max_element(mu.begin(),mu.end());
 		if (it > maxmu)
@@ -210,52 +211,47 @@ void DensityReinit(State &p, my_kd_tree_t &mat_index)
 		//Find matrix A.
 		std::vector<std::pair<size_t,double>> matches;
 		mat_index.index->radiusSearch(&pi.xi[0], search_radius, matches, params);
-		for (auto &i: matches)
+		for (auto &i: matches) 
 		{
 			Particle pj = p[i.first];
 			if(&pi == &pj)
 				continue;
 
-			Vector2d Rij = pi.xi - pj.xi;
-			Matrix3d Abar ;
-			Abar << 1      , Rij(0)        ,  Rij(1)       ,
-						  Rij(0) , pow(Rij(0),2) ,  Rij(1)*Rij(0),
-							Rij(1) , Rij(1)*Rij(0) ,  pow(Rij(1),2);
+			Matrix3d Abar ;	
+			Abar << 1, pi.xi(0)-pj.xi(0), pi.xi(1)-pj.xi(1),
+				pi.xi(0)-pj.xi(0), pow(pi.xi(0)-pj.xi(0),2),(pi.xi(1)-pj.xi(1))*(pi.xi(0)-pj.xi(0)),
+				pi.xi(1)-pj.xi(1),(pi.xi(1)-pj.xi(1))*(pi.xi(0)-pj.xi(0)),pow(pi.xi(1)-pj.xi(1),2);
 
-			A+=Abar*W2Kernel(Rij.norm());
+			A+=(mass/pj.rho)*Abar*W2Kernel((pi.xi-pj.xi).norm());
+
 		}
-
-		// Reinitialise density
 		Vector3d Beta = A.inverse()*one;
-		pi.rho=0.0;
-		double rho = 0.0;
-		cout << Beta(0) << " " << Beta(1) << " " << Beta(2) << endl;
+		pi.rho=0;
 		for (auto &i: matches)
 		{
 			Particle pj= p[i.first];
 			if(&pi == &pj)
 				continue;
-
 			Vector2d Rij = pi.xi-pj.xi;
-			rho += W2Kernel(Rij.norm())*(Beta(0)+Beta(1)*Rij(0)+Beta(2)*Rij(1));
+			double dist = Rij.norm();
+			pi.rho += W2Kernel(dist)*(Beta(0)+Beta(1)*Rij(0)+Beta(2)*Rij(1));
 		}
-
-		pi.rho =rho*mass;
+		pi.rho *= mass;
 	}
-
+	
 }
 
-void PredictorCorrector(State &p, State &ph, my_kd_tree_t &mat_index)
+void PredictorCorrector(State &p, State &ph, my_kd_tree_t &mat_index) 
 {
 	/*Predict*/
 	Forces(p, mat_index); /*Find forces at time n*/
-
+	
 	/*Set boundary forces to zero to stop movement of the boundary*/
 	for (size_t i=0; i < bound_parts; ++i)
 		p[i].f = zero;
 
 	for (size_t i=0; i < p.size() ; ++i )
-	{
+	{		
 		ph[i].v = p[i].v+0.5*dt*p[i].f;
 		ph[i].rho = p[i].rho+0.5*dt*p[i].Rrho;
 		ph[i].xi = p[i].xi+0.5*dt*p[i].V;
@@ -285,10 +281,10 @@ void PredictorCorrector(State &p, State &ph, my_kd_tree_t &mat_index)
 	t+=dt;
 }
 
-void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index)
+void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index) 
 {
 	for (int k = 0; k < subits; ++k)
-	{
+	{	
 		Forces(pnp1, mat_index); /*Guess force at time n+1*/
 		for (size_t i=0; i < bound_parts; ++i)
 		{
@@ -309,7 +305,7 @@ void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index)
 			pnp1[i].p = B*(pow(pnp1[i].rho/rho0,gam)-1);
 		}
 		mat_index.index->buildIndex();
-
+		
 		errsum = 0.0;
 		for (size_t i=0; i < pnp1.size(); ++i)
 		{
@@ -317,7 +313,7 @@ void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index)
 			errsum += r.squaredNorm();
 		}
 	}
-
+	
 	vector<Particle>::iterator maxfi = std::max_element(pnp1.begin(),pnp1.end(),
 		[](Particle p1, Particle p2){return p1.f.norm()< p2.f.norm();});
 	maxf = maxfi->f.norm();
@@ -330,58 +326,58 @@ void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index)
 	t+=dt;
 
 }
-void InitSPH(State &particles)
+void InitSPH(State &particles) 
 {
 	cout << "Initialising simulation with " << SimPts << " particles" << endl;
-
+	
 	//Structure input initialiser
 	//Particle(Vector2d x, Vector2d v, Vector2d vh, Vector2d f, float rho, float Rrho, bool bound) :
+	 
+	Vector2d v(0.0,0.0);  
+	Vector2d f(0.0,0.0); 
+	float rho=rho0; 
+	float Rrho=0.0; 
 
-	Vector2d v(0.0,0.0);
-	Vector2d f(0.0,0.0);
-	float rho=rho0;
-	float Rrho=0.0;
 
-
-	/*Create the boundary particles*/
-
+	/*create the boundary particles*/ 
+	 
 	static double stepx = r0*0.7;
 	static double stepy = r0*0.7;
 	const static int Ny = ceil(Box(1)/stepy);
 	stepy = Box(1)/Ny;
 	const static int Nx = ceil(Box(0)/stepx);
 	stepx = Box(0)/Nx;
-
+	
 	for(int i = 0; i <= Ny ; ++i) {
 		Vector2d xi(0.f,i*stepy);
-		particles.push_back(Particle(xi,v,f,rho,Rrho,true));
+		particles.emplace_back(Particle(xi,v,f,rho,Rrho,true));
 	}
 	for(int i = 1; i <Nx ; ++i) {
 		Vector2d xi(i*stepx,Box(1));
-		particles.push_back(Particle(xi,v,f,rho,Rrho,true));
+		particles.emplace_back(Particle(xi,v,f,rho,Rrho,true));
 	}
 	for(int i= Ny; i>0; --i) {
 		Vector2d xi(Box(0),i*stepy);
-		particles.push_back(Particle(xi,v,f,rho,Rrho,true));
+		particles.emplace_back(Particle(xi,v,f,rho,Rrho,true));
 	}
 	for(int i = Nx; i > 0; --i) {
 		Vector2d xi(i*stepx,0.f);
-		particles.push_back(Particle(xi,v,f,rho,Rrho,true));
+		particles.emplace_back(Particle(xi,v,f,rho,Rrho,true));
 	}
-
+	
 	bound_parts = particles.size();
-
+	
 
 	/*Create the simulation particles*/
-	for( int i=0; i< xyPART(0); ++i)
+	for( int i=0; i< xyPART(0); ++i) 
 	{
 		for(int j=0; j< xyPART(1); ++j)
-		{
-				Vector2d xi(Start(0)+i*Pstep,Start(1)+j*Pstep);
-				particles.push_back(Particle(xi,v,f,rho,Rrho,false));
+		{				
+				Vector2d xi(Start(0)+i*Pstep,Start(1)+j*Pstep);		
+				particles.emplace_back(Particle(xi,v,f,rho,Rrho,false));
 		}
 	}
-	cout << "Total Particles: " << SimPts + bound_parts << endl;
+
 }
 void write_settings()
 {
@@ -407,7 +403,7 @@ void write_settings()
     	// 	case 'E':
 	    // 		fp << "Euler Explicit)" << std::endl;
 	    // 		break;
-    	// 	case 'L':
+    	// 	case 'L': 
     	// 		fp << "Leapfrog)" << std::endl;
     	// 		break;
     	// 	case 'N':
@@ -445,23 +441,23 @@ void write_frame_data(State particles, std::ofstream& fp)
 			cerr << p->xi(0) << " " << p->xi(1) << " ";
 	        cerr << p->v(0) << " " << p->v(1) << " ";
 	        cerr << p->f(0) << " " << p->f(1) << " ";
-	        cerr << p->rho << " " << p->p << std::endl;
+	        cerr << p->rho << " " << p->p << std::endl; 
 	        fp.close();
 			exit(-1);
 		}
         fp << p->xi(0) << " " << p->xi(1) << " ";
         fp << p->v.norm() << " ";
         fp << p->f.norm() << " ";
-        fp << p->rho << " "  << p->p << std::endl;
+        fp << p->rho << " "  << p->p << std::endl; 
   	}
 
 
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char *argv[]) 
 {
 	high_resolution_clock::time_point t1 = high_resolution_clock::now();
-
+	
 	//initialise the vector<Particle> particles
 	State particles;
 	State particlesh;
@@ -469,8 +465,8 @@ int main(int argc, char *argv[])
 	/*Initialise particles*/
 	InitSPH(particles);
 	for (auto p: particles)
-			particlesh.push_back(Particle(p.xi,p.v,p.f,p.rho,p.Rrho,p.b));
-
+			particlesh.emplace_back(Particle(p.xi,p.v,p.f,p.rho,p.Rrho,p.b));
+	
 	my_kd_tree_t mat_index(2,particlesh,10);
 	mat_index.index->buildIndex();
 
@@ -483,11 +479,11 @@ int main(int argc, char *argv[])
 
 	/*Open simulation files*/
 	std::ofstream f1("Test.plt", std::ios::out);
-
+	
 	if (f1.is_open())
 	{
 		f1 << std::fixed << setprecision(3);
-
+		
 		cout << "Starting simulation..." << endl;
 		//Write file header defining veriable names
 		f1 <<  "VARIABLES = x, y, V, F, rho, P" << std::endl;
@@ -502,7 +498,7 @@ int main(int argc, char *argv[])
 				  write_frame_data(particles, f1);
 				}
 	f1.close();
-
+	
 	}
 	else
 	{
