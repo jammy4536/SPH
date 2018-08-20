@@ -3,6 +3,7 @@
 /*** Force Calculation: On Simulating Free Surface Flows using SPH. Monaghan, J.J. (1994) ***/
 /*** Smoothing Kernel: Wendland's C2 ***/
 /*** Integrator: Newmark-Beta ****/
+/*** Variable Timestep Criteria: CFL + Monaghan, J.J. (1989) conditions ***/
 
 #include <iostream>
 #include <iomanip>
@@ -39,11 +40,10 @@ using namespace nanoflann;
 const static Vector2i xyPART(25,38); /*Number of particles in (x,y) directions*/
 const static unsigned int SimPts = xyPART(0)*xyPART(1); /*total sim particles*/
 static size_t bound_parts;			/*Number of boundary particles*/
-const static double Pstep = 0.2;	/*Initial particle spacing*/
+const static double Pstep = 0.1;	/*Initial particle spacing*/
 
 //Simulation window parameters
-const static double BoxW = 15.0; /*Boundary width*/
-const static double BoxH = 8.0; /*Boundary height*/
+const static Vector2d Box(15.0, 8.0);   /*Boundary dimensions*/
 const static Vector2d Start(0.31,0.31); /*Simulation particles start + end coords*/
 const static Vector2d Finish(Start(0)+Pstep*xyPART(0)*1.0,Start(1)+Pstep*xyPART(1)*1.0);
 
@@ -61,23 +61,26 @@ const static double r0 = Pstep;		/*Boundary support radius*/
 const static double D = pow(Cs,2);	/*Boundary param 1*/
 const static float N1 = 4;			/*Boundary param 2*/
 const static float N2 = 2;			/*Boundary param 3*/
-const static double dt = 0.0002;	/*Timestep*/
-static float t = 0.f;				/*Current time in sim*/
+static double dt = 0.0002;	/*Timestep*/
+static float t = 0.0;				/*Current time in sim*/
 const static float beta = 0.25;		/*Newmark-Beta parameter*/
 const static int subits = 8;		/*Newmark-Beta iterations*/
-const static int Nframe = 320;		/*Number of output frames*/
-const static int Ndtframe = 60; 	/*Timesteps per frame*/
+const static int Nframe = 2000;		/*Number of output frames*/
+const static int Ndtframe = 10; 	/*Timesteps per frame*/
+
+static double maxmu = 0;	/*CFL Max steps*/
+static double maxf = 0;		/*CFL */
+static double errsum = 0.0;
 const static Vector2d zero(0.0,0.0);
 
 
 typedef struct Particle {
 Particle(Vector2d x, Vector2d v, Vector2d f, float rho, float Rrho, bool bound)	:
-	xi(x), v(v),  f(f), rho(rho), p(0.0), Rrho(Rrho), b(bound),
-	fp(0.0,0.0), fb(0.0,0.0), fv(0.0,0.0), fs(0.0,0.0) {}
+	xi(x), v(v),  f(f), rho(rho), p(0.0), Rrho(Rrho), b(bound) {}
+	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 	Vector2d xi, v, f;
 	float rho, p, Rrho;
 	bool b;
-	Vector2d fp, fb, fv, fs;
 	int size() const {return(xi.size());}
 	double operator[](int a) const {
 		return(xi[a]);
@@ -129,18 +132,19 @@ Vector2d W2GradK(Vector2d Rij, double dist)
 
 void Forces(State &part,my_kd_tree_t &mat_index)
 {
+	maxmu=0; /* CFL Parameter */
 	double alpha = 0.025;
 	for (auto &pi :part)
 	{
 
 		//Reset the particle to zero
 		pi.f = zero;
-		pi.fp = zero;
-		pi.fb = zero;
-		pi.fv = zero;
+		
 		Vector2d contrib(0.0,0.0);
 		double Rrhocontr = 0.0;
 		pi.Rrho=0.0;
+
+		vector<double> mu;
 		std::vector<std::pair<size_t,double>> matches;
 		mat_index.index->radiusSearch(&pi.xi[0], search_radius, matches, params);
 		for (auto &i: matches)
@@ -157,6 +161,7 @@ void Forces(State &part,my_kd_tree_t &mat_index)
 				double vdotr = Vij(0)*Rij(0)+Vij(1)*Rij(1);
 				double rhoij = 0.5*(pi.rho+pj.rho);
 				double muij= H*vdotr/(r*r+0.01*HSQ);
+				mu.emplace_back(muij);
 				double pifac = alpha*cbar*muij/rhoij;
 
 				if (vdotr > 0) pifac = 0;
@@ -168,7 +173,6 @@ void Forces(State &part,my_kd_tree_t &mat_index)
 			// if (pj.b == true && r < r0)
 			// {
 			// 	contrib -= D*(pow((r0/r),N1)-pow((r0/r),N2))*Rij/Rij.squaredNorm();
-			// 	pi.fb+=contrib*mass;
 			// }
 
 
@@ -179,7 +183,11 @@ void Forces(State &part,my_kd_tree_t &mat_index)
 		pi.Rrho = Rrhocontr*mass;
 		pi.f= contrib*mass;
 		pi.f(1) += -9.81; /*Add gravity*/
-		pi.fp = contrib*mass;
+		
+		//CFL f_cv Calc
+		double it = *max_element(mu.begin(),mu.end());
+		if (it > maxmu)
+			maxmu=it;
 
 		//cout << pi.f << endl;
 	}
@@ -232,6 +240,10 @@ void PredictorCorrector(State &p, State &ph, my_kd_tree_t &mat_index)
 
 void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index)
 {
+	vector<Vector2d> xih;
+	for (auto pi :pnp1)
+		xih.emplace_back(pi.xi);
+
 	for (int k = 0; k < subits; ++k)
 	{
 		Forces(pnp1, mat_index); /*Guess force at time n+1*/
@@ -240,6 +252,10 @@ void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index)
 			pnp1[i].f = zero; /*Zero boundary forces*/
 			pn[i].f = zero;   /*So that they dont move*/
 		}
+
+		/*Previous State for error calc*/
+		for (size_t  i=0; i< xih.size(); ++i)
+			xih[i] = pnp1[i].xi;
 
 		/*Update the state at time n+1*/
 		for (size_t i=0; i < pn.size() ; ++i )
@@ -250,8 +266,22 @@ void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index)
 			pnp1[i].p = B*(pow(pnp1[i].rho/rho0,gam)-1);
 		}
 		mat_index.index->buildIndex();
+	
 	}
 
+	errsum = 0.0;
+	for (size_t i=0; i < pnp1.size(); ++i)
+	{
+		Vector2d r = pnp1[i].xi-xih[i];
+		errsum += r.squaredNorm();
+	}
+
+	vector<Particle>::iterator maxfi = std::max_element(pnp1.begin(),pnp1.end(),
+		[](Particle p1, Particle p2){return p1.f.norm()< p2.f.norm();});
+	maxf = maxfi->f.norm();
+	double dtf = sqrt(H/maxf);
+	double dtcv = H/(Cs+maxmu);
+	dt = 0.3*min(dtf,dtcv);
 	//Update the state at time n
 	pn = pnp1;
 	t+=dt;
@@ -274,66 +304,68 @@ void InitSPH(State &particles)
 
 	static double stepx = r0*0.7;
 	static double stepy = r0*0.7;
-	const static int Ny = ceil(BoxH/stepy);
-	const static int Nx = ceil(BoxW/stepx);
-	stepx = BoxW/Nx;
-	stepy = BoxH/Ny;
+	const static int Ny = ceil(Box(1)/stepy);
+	stepy = Box(1)/Ny;
+	const static int Nx = ceil(Box(0)/stepx);
+	stepx = Box(0)/Nx;
+	
 	for(int i = 0; i <= Ny ; ++i) {
 		Vector2d xi(0.f,i*stepy);
-		particles.push_back(Particle(xi,v,f,rho,Rrho,true));
+		particles.emplace_back(Particle(xi,v,f,rho,Rrho,true));
 	}
 	for(int i = 1; i <Nx ; ++i) {
-		Vector2d xi(i*stepx,BoxH);
-		particles.push_back(Particle(xi,v,f,rho,Rrho,true));
+		Vector2d xi(i*stepx,Box(1));
+		particles.emplace_back(Particle(xi,v,f,rho,Rrho,true));
 	}
 	for(int i= Ny; i>0; --i) {
-		Vector2d xi(BoxW,i*stepy);
-		particles.push_back(Particle(xi,v,f,rho,Rrho,true));
+		Vector2d xi(Box(0),i*stepy);
+		particles.emplace_back(Particle(xi,v,f,rho,Rrho,true));
 	}
 	for(int i = Nx; i > 0; --i) {
 		Vector2d xi(i*stepx,0.f);
-		particles.push_back(Particle(xi,v,f,rho,Rrho,true));
+		particles.emplace_back(Particle(xi,v,f,rho,Rrho,true));
 	}
-
+	
 	bound_parts = particles.size();
-
+	
 
 	/*Create the simulation particles*/
-	for( int i=0; i< xyPART(0); ++i)
+	for( int i=0; i< xyPART(0); ++i) 
 	{
 		for(int j=0; j< xyPART(1); ++j)
-		{
-				Vector2d xi(Start(0)+i*Pstep,Start(1)+j*Pstep);
-				particles.push_back(Particle(xi,v,f,rho,Rrho,false));
+		{				
+				Vector2d xi(Start(0)+i*Pstep,Start(1)+j*Pstep);		
+				particles.emplace_back(Particle(xi,v,f,rho,Rrho,false));
 		}
 	}
+
 	cout << "Total Particles: " << SimPts + bound_parts << endl;
 }
 void write_settings()
 {
 	std::ofstream fp("Test_Settings.txt", std::ios::out);
-  //std::ofstream fp("Test_Settings.txt", std::ios::out);
-  if(fp.is_open()) {
-    //fp << "VERSION: " << VERSION_TAG << std::endl << std::endl; //Write version
-    fp << "SIMULATION PARAMETERS:" << std::endl; //State the system parameters.
-    fp << "\tNumber of frames (" << Nframe <<")" << std::endl;
-    fp << "\tSteps per frame ("<< Ndtframe << ")" << std::endl;
-    fp << "\tTime step (" << dt << ")" << std::endl;
-    fp << "\tParticle Spacing ("<< Pstep << ")" << std::endl;
-    fp << "\tParticle Mass ("<< mass << ")" << std::endl;
-    fp << "\tReference density ("<< rho0 << ")" << std::endl;
-    fp << "\tSupport Radius ("<< H << ")" << std::endl;
-    fp << "\tGravitational strength ("<< 9.81 << ")" << std::endl;
-    fp << "\tNumber of boundary points (" << bound_parts << ")" << std::endl;
-    fp << "\tNumber of simulation points (" << SimPts << ")" << std::endl;
-    fp << "\tIntegrator type (Newmark_Beta)" << std::endl;
+  
+	if(fp.is_open()) {
+		//fp << "VERSION: " << VERSION_TAG << std::endl << std::endl; //Write version
+		fp << "SIMULATION PARAMETERS:" << std::endl; //State the system parameters.
+		fp << "\tNumber of frames (" << Nframe <<")" << std::endl;
+		fp << "\tSteps per frame ("<< Ndtframe << ")" << std::endl;
+		fp << "\tTime step (" << dt << ")" << std::endl;
+		fp << "\tParticle Spacing ("<< Pstep << ")" << std::endl;
+		fp << "\tParticle Mass ("<< mass << ")" << std::endl;
+		fp << "\tReference density ("<< rho0 << ")" << std::endl;
+		fp << "\tSupport Radius ("<< H << ")" << std::endl;
+		fp << "\tGravitational strength ("<< 9.81 << ")" << std::endl;
+		fp << "\tNumber of boundary points (" << bound_parts << ")" << std::endl;
+		fp << "\tNumber of simulation points (" << SimPts << ")" << std::endl;
+		fp << "\tIntegrator type (Newmark_Beta)" << std::endl;
 
-    fp.close();
-  }
-  else {
-    cout << "Error opening the output file." << endl;
-    exit(-1);
-  }
+		fp.close();
+	}
+	else {
+		cout << "Error opening the output file." << endl;
+		exit(-1);
+	}
 }
 
 void write_frame_data(State particles, std::ofstream& fp)
@@ -343,12 +375,12 @@ void write_frame_data(State particles, std::ofstream& fp)
 	{
 		//Vector2d a=  p.f/p.rho;
         fp << b->xi(0) << " " << b->xi(1) << " ";
-        fp << b->v(0) << " " << b->v(1) << " ";
-        fp << b->f(0) << " " << b->f(1) << " ";
+        fp << b->v.norm() << " ";
+        fp << b->f.norm() << " ";
         fp << b->rho << " "  << b->p << std::endl;
   	}
 
-    fp <<  "ZONE t=\"Particle Data\", STRANDID=1, SOLUTIONTIME=" << t << ", DATAPACKING=POINT" << std::endl;
+    fp <<  "ZONE t=\"Particle Data\", STRANDID=2, SOLUTIONTIME=" << t << ", DATAPACKING=POINT" << std::endl;
   	for (auto p=std::next(particles.begin(),bound_parts); p!=particles.end(); ++p)
 	{
 		//Eigen::Vector2d a=  p->f/p->rho;
@@ -363,8 +395,8 @@ void write_frame_data(State particles, std::ofstream& fp)
 			exit(-1);
 		}
         fp << p->xi(0) << " " << p->xi(1) << " ";
-        fp << p->v(0) << " " << p->v(1) << " ";
-        fp << p->f(0) << " " << p->f(1) << " ";
+        fp << p->v.norm() << " ";
+        fp << p->f.norm() << " ";
         fp << p->rho << " "  << p->p << std::endl;
   	}
 
@@ -381,7 +413,7 @@ int main(int argc, char *argv[])
 	/*Initialise particles*/
 	InitSPH(particles);
 	for (auto p: particles)
-			particlesh.push_back(Particle(p.xi,p.v,p.f,p.rho,p.Rrho,p.b));
+			particlesh.emplace_back(Particle(p.xi,p.v,p.f,p.rho,p.Rrho,p.b));
 
 	my_kd_tree_t mat_index(2,particlesh,10);
 	mat_index.index->buildIndex();
@@ -402,11 +434,12 @@ int main(int argc, char *argv[])
 
 		cout << "Starting simulation..." << endl;
 		//Write file header defining veriable names
-		f1 <<  "VARIABLES = x, y, Vx, Vy, fx, fy, rho, P" << std::endl;
+		f1 <<  "VARIABLES = x, y, V, F, rho, P" << std::endl;
 		write_frame_data(particles, f1);
-
+		const static int npts = bound_parts + SimPts;
+		
 		for (int frame = 1; frame<= Nframe; ++frame) {
-				  cout << "Frame Number: " << frame << endl;
+				  cout << "Frame Number: " << frame << "\tError: " << log10(sqrt(errsum/(1.0*npts))) << endl;
 				  for (int i=0; i< Ndtframe; ++i) {
 				    Newmark_Beta(particles, particlesh, mat_index);
 				  }
