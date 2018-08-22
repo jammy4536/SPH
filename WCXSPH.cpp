@@ -33,14 +33,14 @@ using namespace nanoflann;
 
 /*Make these from input file at some point...*/
 //Simulation Definition
-const static Vector2i xyPART(25,35); /*Number of particles in (x,y) directions*/
+const static Vector2i xyPART(20,40); /*Number of particles in (x,y) directions*/
 const static unsigned int SimPts = xyPART(0)*xyPART(1); /*total sim particles*/
-static size_t bound_parts;			/*Number of boundary particles*/
-static int npts;
+static unsigned int bound_parts;			/*Number of boundary particles*/
+static unsigned int npts;
 const static double Pstep = 0.1;	/*Initial particle spacing*/
 
 //Simulation window parameters
-const static Vector2d Box(15,5); /*Boundary dimensions*/
+const static Vector2d Box(5,5); /*Boundary dimensions*/
 const static Vector2d Start(0.15,0.11); /*Simulation particles start + end coords*/
 const static Vector2d Finish(Start(0)+Pstep*xyPART(0)*1.0,Start(1)+Pstep*xyPART(1)*1.0);
 
@@ -92,7 +92,7 @@ typedef KDTreeVectorOfVectorsAdaptor<State, double> my_kd_tree_t;
 const static double search_radius = 4*HSQ;
 nanoflann::SearchParams params;
 
-/*Smoothing Kernel*/
+/*Gaussian Smoothing Kernel, truncated at 3H */
 double Kernel(double dist)
 {
 	double q = dist/H;
@@ -102,7 +102,7 @@ double Kernel(double dist)
 		return 0;
 }
 
-/*Smoothing Kernel Gradient*/
+/*Gaussian Gradient*/
 Vector2d GradK(Vector2d Rij, double dist) 
 {
 	double q = dist/H;
@@ -112,6 +112,7 @@ Vector2d GradK(Vector2d Rij, double dist)
 		return Vector2d(0,0);
 }
 
+/*Wendland's C2 Quintic Kernel*/
 double W2Kernel(double dist) 
 {
 	double q = dist/H;
@@ -167,20 +168,20 @@ void Forces(State &part,my_kd_tree_t &mat_index)
 				double rhoij = 0.5*(pi.rho+pj.rho);
 				double muij= H*vdotr/(r*r+0.01*HSQ);
 				mu.emplace_back(muij);
-				double pifac = alpha*cbar*muij/rhoij;
+				double pifac = -alpha*cbar*muij/rhoij;
 
 				if (vdotr > 0) pifac = 0;
-				contrib += pj.m*Grad*(pifac + pi.p/pow(pi.rho,2)+ pj.p/pow(pj.rho,2));
+				contrib -= pj.m*Grad*(pifac + pi.p/pow(pi.rho,2)+ pj.p/pow(pj.rho,2));
 			
 			//}
-
 			// if (pj.b == true && r < r0) 
 			// {
 			// 	contrib -= D*(pow((r0/r),N1)-pow((r0/r),N2))*Rij/Rij.squaredNorm();
 			// }
 			//if (pj.b==false)
-			pi.V+=eps*(pj.m/rhoij)*Kern*Vij; /* XSPH Influence*/
-			Rrhocontr += pj.m*(Vij.dot(Grad));
+			
+			pi.V-=eps*(pj.m/rhoij)*Kern*Vij; /* XSPH Influence*/
+			Rrhocontr -= pj.m*(Vij.dot(Grad));
 			
 			
 		}
@@ -238,7 +239,6 @@ void DensityReinit(State &p, my_kd_tree_t &mat_index)
 
 		pi.rho = rho;
 	}
-	
 }
 
 void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index) 
@@ -252,9 +252,10 @@ void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index)
 		Forces(pnp1, mat_index); /*Guess force at time n+1*/
 		for (size_t i=0; i < bound_parts; ++i)
 		{
-			pnp1[i].f = zero; /*Zero boundary forces*/
-			pn[i].f = zero;   /*So that they dont move*/
+			pnp1[i].f = zero; /*Zero boundary forces and velocities...*/
+			pnp1[i].v= zero;  /*So that they dont move*/	
 		}
+
 		/*Previous State for error calc*/
 		for (size_t  i=0; i< xih.size(); ++i)
 			xih[i] = pnp1[i].xi;
@@ -307,9 +308,7 @@ void InitSPH(State &particles)
 	float rho=rho0; 
 	float Rrho=0.0; 
 
-
-	/*create the boundary particles*/ 
-	 
+	/*create the boundary particles*/ 	 
 	static double stepx = r0*0.7;
 	static double stepy = r0*0.7;
 	const static int Ny = ceil(Box(1)/stepy);
@@ -333,10 +332,8 @@ void InitSPH(State &particles)
 		Vector2d xi(i*stepx,0.f);
 		particles.emplace_back(Particle(xi,v,f,rho,Rrho,Boundmass,true));
 	}
-	
 	bound_parts = particles.size();
 	
-
 	/*Create the simulation particles*/
 	for( int i=0; i< xyPART(0); ++i) 
 	{
@@ -349,6 +346,7 @@ void InitSPH(State &particles)
 
 	cout << "Total Particles: " << SimPts + bound_parts << endl;
 }
+
 void write_settings()
 {
 	std::ofstream fp("Test_Settings.txt", std::ios::out);
@@ -406,8 +404,6 @@ void write_frame_data(State particles, std::ofstream& fp)
         fp << p->f.norm() << " ";
         fp << p->rho << " "  << p->p << std::endl; 
   	}
-
-
 }
 
 int main(int argc, char *argv[]) 
