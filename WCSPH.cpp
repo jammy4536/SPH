@@ -42,6 +42,7 @@ using namespace nanoflann;
 const static Vector2i xyPART(25,38); /*Number of particles in (x,y) directions*/
 const static unsigned int SimPts = xyPART(0)*xyPART(1); /*total sim particles*/
 static size_t bound_parts;			/*Number of boundary particles*/
+static size_t npts;
 const static double Pstep = 0.1;	/*Initial particle spacing*/
 
 //Simulation window parameters
@@ -73,6 +74,7 @@ const static int Ndtframe = 10; 	/*Timesteps per frame*/
 static double maxmu = 0;	/*CFL Max steps*/
 static double maxf = 0;		/*CFL */
 static double errsum = 0.0;
+static double logbase = 0.0;
 const static Vector2d zero(0.0,0.0);
 
 
@@ -164,11 +166,11 @@ void Forces(State &part,my_kd_tree_t &mat_index)
 				double rhoij = 0.5*(pi.rho+pj.rho);
 				double muij= H*vdotr/(r*r+0.01*HSQ);
 				mu.emplace_back(muij);
-				double pifac = alpha*cbar*muij/rhoij;
+				double pifac = -alpha*cbar*muij/rhoij;
 
 				if (vdotr > 0) pifac = 0;
 
-				contrib += Grad*(pifac + pi.p/pow(pi.rho,2)+ pj.p/pow(pj.rho,2));
+				contrib -= Grad*(pifac + pi.p/pow(pi.rho,2)+ pj.p/pow(pj.rho,2));
 
 			//}
 
@@ -178,7 +180,7 @@ void Forces(State &part,my_kd_tree_t &mat_index)
 			// }
 
 
-			Rrhocontr += (Vij.dot(Grad));
+			Rrhocontr -= (Vij.dot(Grad));
 
 
 		}
@@ -250,8 +252,8 @@ void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index)
 		Forces(pnp1, mat_index); /*Guess force at time n+1*/
 		for (size_t i=0; i < bound_parts; ++i)
 		{
-			pnp1[i].f = zero; /*Zero boundary forces*/
-			pn[i].f = zero;   /*So that they dont move*/
+			pnp1[i].f = zero; /*Zero boundary forces + velocities*/
+			pnp1[i].v = zero; /*So that they dont move*/
 		}
 
 		/*Previous State for error calc*/
@@ -267,15 +269,18 @@ void Newmark_Beta(State &pn, State &pnp1, my_kd_tree_t &mat_index)
 			pnp1[i].p = B*(pow(pnp1[i].rho/rho0,gam)-1);
 		}
 		mat_index.index->buildIndex();
-	
+		
+		errsum = 0.0;
+		for (size_t i=0; i < pnp1.size(); ++i)
+		{
+			Vector2d r = pnp1[i].xi-xih[i];
+			errsum += r.squaredNorm();
+		}
+
+		if(k == 0)
+			logbase=log10(sqrt(errsum/(1.0*npts)));
 	}
 
-	errsum = 0.0;
-	for (size_t i=0; i < pnp1.size(); ++i)
-	{
-		Vector2d r = pnp1[i].xi-xih[i];
-		errsum += r.squaredNorm();
-	}
 
 	vector<Particle>::iterator maxfi = std::max_element(pnp1.begin(),pnp1.end(),
 		[](Particle p1, Particle p2){return p1.f.norm()< p2.f.norm();});
@@ -413,6 +418,8 @@ int main(int argc, char *argv[])
 
 	/*Initialise particles*/
 	InitSPH(particles);
+	npts = bound_parts + SimPts;
+
 	for (auto p: particles)
 			particlesh.emplace_back(Particle(p.xi,p.v,p.f,p.rho,p.Rrho,p.b));
 
@@ -437,10 +444,10 @@ int main(int argc, char *argv[])
 		//Write file header defining veriable names
 		f1 <<  "VARIABLES = x, y, V, F, rho, P" << std::endl;
 		write_frame_data(particles, f1);
-		const static int npts = bound_parts + SimPts;
+		
 		
 		for (int frame = 1; frame<= Nframe; ++frame) {
-				  cout << "Frame Number: " << frame << "\tError: " << log10(sqrt(errsum/(1.0*npts))) << endl;
+				  cout << "Frame Number: " << frame << "\tError: " << log10(sqrt(errsum/(1.0*npts)))-logbase<< endl;
 				  for (int i=0; i< Ndtframe; ++i) {
 				    Newmark_Beta(particles, particlesh, mat_index);
 				  }
