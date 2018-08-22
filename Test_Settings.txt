@@ -1,13 +1,12 @@
-VERSION: SPHView00
-
 SIMULATION PARAMETERS:
-	Number of frames (5)
+	Number of frames (2000)
 	Steps per frame (10)
-	Time step (0.0001)
-	Number of particles (16900)
-	Particle size (0.005)
+	Time step (0.0002)
+	Particle Spacing (0.1)
+	Particle Mass (10)
 	Reference density (1000)
-	Bulk modulus (4.2039e-45)
-	Dynamic viscosity (0.1)
-	Gravitational strength (9.81)
-
+	Support Radius (0.0977205)
+	Gravitational strength (-9.81)
+	Number of boundary points (716)
+	Number of simulation points (950)
+	Integrator type (Newmark_Beta)

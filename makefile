@@ -1,10 +1,15 @@
 CXX=g++
-CFLAGS=-g -fbounds-check -std=c++11 -O3 -fstrict-aliasing 
+INC= -I C:\cygwin64\usr\include\eigen3 -I C:\cygwin64\usr\local\include 
+CFLAGS= -g -fbounds-check -std=c++11 -O3 -fstrict-aliasing -o
+exe = WCSPH
 
-WCSPH : WCSPH_XSPH.cpp
-	$(CXX) $(CFLAGS) -o  $@ $<
+SPH : WCSPH.cpp
+	$(CXX) $(INC) $(CFLAGS) $(exe) $< 
 
-lin: WCSPH
+XSPH : WCXSPH.cpp
+	$(CXX) $(INC) $(CFLAGS) $(exe) $< 
+
+linux: WCSPH
 	./WCSPH Sample_Input.txt
 
 win: WCSPH
