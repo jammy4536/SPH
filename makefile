@@ -9,6 +9,9 @@ SPH : WCSPH.cpp
 XSPH : WCXSPH.cpp
 	$(CXX) $(INC) $(CFLAGS) $(exe) $< 
 
+3D	: WCXSPH3D.cpp
+	$(CXX) $(INC) $(CFLAGS) $(exe) $< 
+
 linux: WCSPH
 	./WCSPH Sample_Input.txt
 
