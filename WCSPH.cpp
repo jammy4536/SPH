@@ -149,6 +149,7 @@ void Forces(State &part,my_kd_tree_t &mat_index)
 		pi.Rrho=0.0;
 
 		vector<double> mu;
+		mu.emplace_back(0);
 		std::vector<std::pair<size_t,double>> matches;
 		mat_index.index->radiusSearch(&pi.xi[0], search_radius, matches, params);
 		for (auto &i: matches)
