@@ -1,23 +1,33 @@
+# Compiler to use. in C++, so g++ is used.
 CXX=g++
-INC= -I C:\cygwin64\usr\include\eigen3 -I C:\cygwin64\usr\local\include
-CFLAGS= -g -fbounds-check -fstrict-aliasing -std=c++11 -O3  -o
-exe = WCSPH
 
-XSPH : WCXSPH.cpp
-	$(CXX) $(INC) $(CFLAGS) $(exe) $< 
+# Libraries to include (Change to local directory would probably be better)
+INC= 
 
-SPH : WCSPH.cpp
-	$(CXX) $(INC) $(CFLAGS) $(exe) $< 
+# Compiler flags. If desired add -g for debugging info.
+CFLAGS= -g -std=c++11 -Wall -Wextra -fopenmp -lm -ffast-math -funroll-loops -O3
 
-3D	: WCXSPH3D.cpp
-	$(CXX) $(INC) $(CFLAGS) $(exe) $< 
+# Target executable
+TARGET = WCXSPH
 
-linux: WCSPH
-	./WCSPH Sample_Input.txt
+#all : $(TARGET) 
 
-win: WCSPH
-	$(CXX) $(INC) $(CFLAGS) $(exe) WCXSPH.cpp 
-	./WCSPH.exe Sample_Input.txt
+$(TARGET) : WCXSPH.cpp
+	$(CXX) $(INC) $(CFLAGS) -o $(TARGET) $< 
 
 clean:
-	rm WCSPH WCSPH.exe
+	$(RM) $(TARGET)
+
+new:
+	$(RM) $(TARGET)
+	$(CXX) $(INC) $(CFLAGS) -o $(TARGET) $< 
+
+3D	: WCXSPH3D.cpp
+	$(CXX) $(INC) $(CFLAGS) -o $(TARGET) $< 
+
+linux: $(TARGET)
+	./WCSPH
+
+win: $(TARGET)
+	./$(TARGET).exe
+
